@@ -1,0 +1,48 @@
+{
+  "name": "commonpayment",
+  "version": "0.1.0",
+  "description": "Provider-agnostic payment integration for Taiwan-native processors (ECPay 綠界 + 藍新 NewebPay). Shared across the yabroexperiments portfolio.",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "INTEGRATION_GUIDE.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "payment",
+    "ecpay",
+    "newebpay",
+    "taiwan",
+    "綠界",
+    "藍新"
+  ],
+  "author": "yabroexperiments",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yabroexperiments/commonpayment.git"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}

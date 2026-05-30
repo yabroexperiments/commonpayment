@@ -1,0 +1,21 @@
+# Build output
+dist/
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env (never commit creds — adapters fall back to sandbox publics)
+.env
+.env.local
+.env.*.local
