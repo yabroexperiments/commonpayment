@@ -160,6 +160,22 @@ export interface BuildOrderInput {
   returnUrl: string;
 
   /**
+   * Optional absolute URL for an AUTOMATIC post-payment browser return
+   * (no "back to store" button click). When set, ECPay receives it as
+   * `OrderResultURL` and auto-POSTs the browser there after payment —
+   * unlike `returnUrl` (ECPay `ClientBackURL`), which only renders a
+   * manual button on ECPay's result page. The endpoint MUST accept a
+   * POST (ECPay submits the result form to it) and should 303-redirect
+   * to the human-facing status page. MUST include basePath if mounted
+   * under one. Ignored by NewebPay, whose `returnUrl` already auto-
+   * returns the browser.
+   *
+   * Example (gogoLINEsticker prod):
+   *   `https://hahadoggo.com/LINEsticker/api/payment/ecpay/return?app=<id>`
+   */
+  orderResultUrl?: string;
+
+  /**
    * Optional pre-selection of payment method. Defaults to `"ALL"`
    * (show the gateway's method picker). Each adapter maps this to
    * its native enum/flags.

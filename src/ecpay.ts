@@ -290,6 +290,15 @@ export class EcpayProvider implements PaymentProvider {
       EncryptType: "1",
     };
 
+    // OrderResultURL (optional) — when present ECPay auto-POSTs the
+    // browser here after payment instead of only rendering a manual
+    // "返回商店" button (that's ClientBackURL). We keep ClientBackURL
+    // too as a fallback. CheckMacValue is computed over ALL fields,
+    // so add this BEFORE the signature below.
+    if (input.orderResultUrl) {
+      fields.OrderResultURL = input.orderResultUrl;
+    }
+
     fields.CheckMacValue = buildCheckMacValue(
       fields,
       this.cfg.hashKey,
