@@ -30,6 +30,12 @@ SkillSpector (agent skills) · mcp-scan (MCP servers) · Socket.dev +
 OSV-Scanner (npm/pip). Static modes first — nothing leaves the
 machine. HIGH/CRITICAL finding = RED unless Phase 2 proves a false
 positive with file-level evidence.
+On AC's Mac, SkillSpector is vetted + vendored: run the hardened
+`skillspector` wrapper in `ClaudeCodex/tools/` (static-only by
+default; add `--with-llm` for the semantic stage on public code —
+local claude login, no raw key; NEVER call the venv binary directly).
+No OSV-Scanner install needed: POST lockfile name/version pairs to
+`api.osv.dev/v1/querybatch`.
 
 ═══ PHASE 2: ANALYZE ═══
 Read EVERY file (scanners are bypassable — a scan pass is not a green
