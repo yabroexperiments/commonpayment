@@ -22,6 +22,14 @@ order-sensitive commands) to where a future session will actually find it:
 - Anything saved to session memory or agent memory this session that matters on another
   machine or in cloud sessions must ALSO land in a committed file — memory does not
   travel; git does.
+Also capture FRICTION, not just decisions. Scan the session for what the work itself
+taught: where AC corrected you, where a documented rule got ignored anyway, where a
+workflow was clunky or a step was easy to forget. Record the GENERALIZABLE PRINCIPLE
+(strip the one-off specifics), not the incident. Key rule: when a guideline keeps getting
+missed, the fix is to make it structurally hard to skip — a checklist step, a wrapper, an
+enforced gate — NOT to restate it louder (cf. our "conditions enforced in code, not
+memory" rule). Route each principle to the homes above; any change to a skill/command is
+STAGED as a diff for AC to install, never silently auto-applied.
 No one-off session noise. Show the diffs at the end, not before saving.
 
 ═══ TASK 2: Handoff brief ═══
