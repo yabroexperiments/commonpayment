@@ -6,6 +6,20 @@
 > under `Projects/SkincareDB/`, LINEgashelper under
 > `Projects/LINEgashelper/`).
 
+> **💰 PRODUCTION MONEY-CODE GUARD — THIS ENTIRE PACKAGE IS MONEY CODE
+> (Albert, global rule; stamped here 2026-07-26).** Real money moves
+> through every consumer of this package, so *all* of `src/` is
+> UNTOUCHABLE without Albert's explicit, per-change confirmation in that
+> session — `src/ecpay.ts`, `src/stripe.ts`, `src/newebpay.ts`,
+> `src/types.ts`, `src/index.ts`. A change here fans out to
+> gogolinesticker, whatsappsticker, SkinIQ and LINEgashelper at once, so
+> the blast radius is every live payment rail in the portfolio. If a
+> feature or fix would touch checkout, callbacks/webhooks, amounts,
+> currency, refunds, signature/CheckMacValue logic, or payout math: STOP,
+> name the files, explain the change in plain English, and wait. Prior
+> approval of a *different* change does NOT carry over. This rule holds
+> in every tool (Claude Code, Codex CLI, Codex Web) and on every machine.
+
 ---
 
 ## Who I Am
