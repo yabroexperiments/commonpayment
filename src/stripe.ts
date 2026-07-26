@@ -86,6 +86,15 @@ export interface CreateCheckoutSessionInput {
    * (e.g. your order id) so a retried request can't mint a second session.
    */
   idempotencyKey?: string;
+  /**
+   * Escape hatch for provider-specific session params this helper doesn't model
+   * directly — e.g. physical-goods `shipping_address_collection`,
+   * `shipping_options`, `phone_number_collection`. Merged UNDER the core fields,
+   * so the money-critical keys (`mode`, `line_items` with the server-fixed
+   * `unit_amount`, `success_url`, `cancel_url`, `metadata`) always win and can
+   * never be overridden here.
+   */
+  extraParams?: Partial<Stripe.Checkout.SessionCreateParams>;
 }
 
 /** What the caller needs from a created session. */
@@ -157,6 +166,9 @@ export class StripeProvider {
     if (input.images && input.images.length) productData.images = input.images;
 
     const params: Stripe.Checkout.SessionCreateParams = {
+      // App-supplied extras first (shipping/phone/etc.); the money-critical
+      // fields below are set last so they always win over extraParams.
+      ...(input.extraParams ?? {}),
       mode: "payment",
       line_items: [
         {
