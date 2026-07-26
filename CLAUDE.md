@@ -258,3 +258,25 @@ Original design doc:
 > network/auth/secrets = automatic reject; Albert reads only
 > plain-English GREEN/YELLOW/RED verdicts and makes the go/no-go call.
 <!-- ECVP:END -->
+
+<!-- COST:BEGIN (managed by install-vet-protocol.sh — edit the yabro-hq copy, then re-run) -->
+> **💸 COST DISCIPLINE — never burn credits blind-iterating (Albert,
+> 2026-07-26).** If a bug needs an environment you cannot drive (a real
+> device, rendered pixels, mobile PWA / safe-area — anything pixel-visual),
+> STOP after the FIRST failed attempt: say so, and move to a loop that CAN
+> see it (local dev + simulator, device inspector, or a screenshot from
+> Albert). Never blind-iterate against production. **"Verified" must be
+> literally true** — claim it only when the check actually reproduced the
+> reported failure in the real environment; a headless render or a simulated
+> viewport does NOT verify a device-specific bug, so write "unverified —
+> needs device" instead. **Two strikes**: the same symptom failing twice
+> means STOP — a third attempt needs NEW EVIDENCE (screenshot, real repro,
+> inspector output), never a new theory; two contradictory root causes for
+> one symptom means the bug isn't understood. Visual / pixel / layout work
+> belongs in a batched local live-preview loop, NOT a stream of prod deploys
+> driven by an agent that cannot see rendered output — keep a blind remote
+> agent on logic/data/backend work it can verify itself. Ambiguous on-screen
+> target → ask ONE cheap question (or ask for a circled screenshot) BEFORE
+> editing. Call the cost out loud the moment work turns into repeated
+> deploy → eyeball → correct cycles.
+<!-- COST:END -->
