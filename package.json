@@ -41,8 +41,17 @@
     "type": "git",
     "url": "https://github.com/yabroexperiments/commonpayment.git"
   },
+  "peerDependencies": {
+    "stripe": "^22.2.1"
+  },
+  "peerDependenciesMeta": {
+    "stripe": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^20",
+    "stripe": "^22.2.1",
     "typescript": "^5"
   }
 }

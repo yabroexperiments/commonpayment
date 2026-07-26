@@ -58,7 +58,7 @@
  * Add new providers here when adapters land. Keep the string values
  * stable — they are persisted in the DB.
  */
-export type ProviderName = "ecpay" | "newebpay";
+export type ProviderName = "ecpay" | "newebpay" | "stripe";
 
 // ---------------------------------------------------------------------------
 // Order construction

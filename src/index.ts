@@ -94,6 +94,21 @@ export {
   type NewebpayConfig,
 } from "./newebpay";
 
+// Stripe is a STANDALONE async provider (Checkout is async + redirect, unlike
+// the synchronous form-POST TW rails), so it does NOT implement the sync
+// `PaymentProvider` interface and is NOT reachable via `createProvider()`. Use
+// `createStripeProvider()` directly. See docs/stripe-integration-plan.md.
+export {
+  StripeProvider,
+  createStripeProvider,
+  trustedCheckoutOrigin,
+  type StripeMode,
+  type StripeConfig,
+  type CreateCheckoutSessionInput,
+  type CheckoutSessionResult,
+  type WebhookVerifyResult,
+} from "./stripe";
+
 import { createEcpayProvider } from "./ecpay";
 import { createNewebpayProvider, type NewebpayConfig } from "./newebpay";
 import type { PaymentProvider, ProviderName } from "./types";
@@ -102,7 +117,7 @@ import type { PaymentProvider, ProviderName } from "./types";
 // createProvider — name-based factory (the public factory consumers need)
 // ---------------------------------------------------------------------------
 
-const VALID_PROVIDERS: readonly ProviderName[] = ["ecpay", "newebpay"];
+const VALID_PROVIDERS: readonly ProviderName[] = ["ecpay", "newebpay", "stripe"];
 
 /**
  * Type guard for provider names. Useful when validating an arbitrary
@@ -148,6 +163,14 @@ export function createProvider(
 ): PaymentProvider {
   if (name === "ecpay") return createEcpayProvider();
   if (name === "newebpay") return createNewebpayProvider(opts.newebpay);
+  if (name === "stripe") {
+    // Stripe's async Checkout API can't satisfy the synchronous
+    // `PaymentProvider` return type of this factory — construct it directly.
+    throw new Error(
+      "commonpayment: Stripe is async and not returned by createProvider() — " +
+        "use createStripeProvider() instead.",
+    );
+  }
   // Exhaustiveness guard — the ProviderName union forbids other
   // values at the type level, but a runtime string from a settings
   // row could still slip through. Throw loudly.
