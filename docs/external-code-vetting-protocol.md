@@ -75,6 +75,41 @@ the WebSocket transport; its `mcp_server.py` exposes only
 stdio/streamable-http, so the vulnerable path is unreachable —
 downgraded with the file:line cited in the registry row.)*
 
+**A scanner that no-ops still exits 0 — check the run, not the exit code.**
+A `--with-llm` SkillSpector scan whose LLM path is dead fails every analyzer
+batch, keeps findings unfiltered, exits 0, and reports `llm_available: true`;
+only `LLM batch failed` on stderr betrays it (2026-07-29, agent-reach: revoked
+`claude` OAuth token). Static-only is a legitimate scan but a WEAKER one — it
+misses semantic risks like fetch-and-follow-remote-instructions, so record which
+layer actually ran and never log it as an LLM-assisted vet. The wrapper now
+enforces this (condition C6: pre-flight probe, exit 3; post-run stderr check,
+exit 4) — if it exits 3 or 4, the scan did not happen, fix the LLM path or drop
+`--with-llm` deliberately. Corollary, same case: a scanner's HIGH verdict can be
+**entirely false positives while the artifact's real central risk goes unflagged**
+— the score is an input to Phase 2, never a verdict in either direction.
+
+**Aim the scanner correctly, or it scans nothing and still exits 0**
+(2026-07-29, mattpocock/skills): SkillSpector's `--recursive` walks only
+*immediate* subdirectories that each hold a `SKILL.md`, so a collection nested
+two levels (`skills/<category>/<skill>/`) needs **one run per category** —
+pointing it at the repo root finds nothing. And in `--format json` the findings
+live under the **`issues`** key, not `findings`; aggregating on the wrong key
+reports a confident, wrong "0 findings". Always reconcile the scanned-component
+count against the artifact's real file count before believing a clean result.
+
+**A scanner score is noise in BOTH directions (2026-07-29).** We already
+knew a PASS is not a green light; agent-reach proved the converse — its
+`61/HIGH/DO_NOT_INSTALL` was *entirely* false positives (8 of 10 findings
+were one rule misfiring on bilingual zh/en frontmatter; another matched the
+word "cookies" inside a sentence *prohibiting* cookie reading), while the
+genuine HIGH risk — a skill instructing agents to fetch and follow live
+instructions from upstream `main` — scored **zero**, because the static
+ruleset does not model that risk class. So: never let a red score stampede
+a decision, and never let a clean score close one. Read the findings, not
+the number. Corollary: when the `--with-llm` semantic stage fails (e.g. the
+local `claude` CLI returns 401 — re-login), say so explicitly and treat the
+run as static-only rather than reporting the score as if complete.
+
 Field notes (2026-07-22): **OSV needs no install** — POST the lockfile's
 name/version pairs to `api.osv.dev/v1/querybatch` for the same known-CVE
 coverage as OSV-Scanner. And **scanner-class tools have a bootstrap
@@ -119,6 +154,44 @@ plain language, with the evidence. Albert decides on YELLOW.
    dir, spawned processes, files written outside scope. For MCP
    servers, run behind mcp-scan's proxy mode and read the traffic log.
 4. Any surprise → RED, discard the session, nothing real was exposed.
+5. **Exercise the command a real adoption would run FIRST — not just the
+   safe-looking ones (rule added 2026-07-29, learned the hard way).** The
+   agent-reach run tested `version`/`check-update`/`doctor`/`--dry-run`,
+   reported "zero write footprint", and was WRONG: the first command any
+   real adoption runs is `skill --install`, which wrote 7 files outside the
+   tool's config dir and **silently deleted a pre-existing user file**.
+   Pick test commands by asking "what would AC actually type on day one?",
+   and always include install/init/setup paths, not just read-only ones.
+6. **Phase 3 does not end until an INDEPENDENT ADVERSARY has tried to
+   refute it (rule added 2026-07-29 — the most expensive lesson so far).**
+   Whoever did the hardening/testing cannot be the one who clears it:
+   they will test what they already thought of. Spawn a separate agent
+   (different model tier where possible), hand it the artifact plus the
+   explicit safety CLAIMS, and instruct it to REFUTE each one with
+   file:line or command output, defaulting to "refuted" when unsure.
+   *Worked example:* a self-assessed "PASS" with a 21-item checklist on a
+   hardened build was refuted **5 claims out of 5** by an adversarial
+   verifier — surviving fetch paths, an unnoticed second remote-install
+   route, a prompt-injection sink, ambient-env credential staging, and the
+   data-destroying installer above. Confidence in one's own hardening is
+   not evidence; an adversary's failed attack is.
+7. **A hardened FORK is a cost, not a fix.** If closing the findings means
+   rewriting an artifact's installer, env handling, and guards, price in
+   that we then own that fork and must re-audit it on every upstream bump.
+   Weigh it against what the artifact actually delivers (see Phase 0.5).
+
+**Phase 0.5 — CAPABILITY REALITY CHECK (add before sinking hours in;
+rule added 2026-07-29).** Before any deep review, answer: *does this
+artifact itself do the thing we want, or does it just orchestrate other
+things that do?* Check the actual command surface / exposed tools, not the
+README's promise. agent-reach advertised read+search across 13 platforms
+and turned out to have **no `read` and no `search` command at all** — its
+own source called it "an installer + doctor tool", with every real
+capability living in 7+ separate unvetted third-party tools that pinning
+does not cover. Vetting the orchestrator would have bought us almost
+nothing. When an artifact is a router, the honest move is to vet the ONE
+downstream tool for the ONE need — and that check costs five minutes at
+the start versus a full pipeline wasted.
 
 **Quarantine toolkit that worked (2026-07-22, no root needed):**
 - **Proxy trap** — set `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` to a
@@ -135,6 +208,29 @@ plain language, with the evidence. Albert decides on YELLOW.
   does nothing" false comfort.
 - **Sandbox control test** — before trusting `sandbox-exec` net-deny,
   prove the cage works on a known-good tool (`curl` must fail inside).
+
+**Running /vet from a CLOUD session (field notes 2026-07-29).**
+- **The cloud container is NOT secret-free.** It ships real `AWS_*`,
+  `GH_TOKEN`/`GITHUB_TOKEN`, GCP and Claude OAuth values in the ambient
+  environment. `env -i PATH=… HOME=<fake>` is therefore MANDATORY, not
+  optional hygiene — and it is exactly the exposure the "ambient env
+  adoption" class of finding would exploit. Audit with
+  `env | grep -iE '(key|token|secret|password|cookie|auth)'` first.
+- **GitHub API is repo-scoped and `add_repo` refuses cross-owner adds**, so
+  `api.github.com/repos/<3rd-party>` returns an access error and WebFetch on
+  it 403s. Phase 0 intake still works: `git clone` the public repo into the
+  scratchpad and read metadata from git (`rev-parse`, `log`), plus WebFetch
+  on the HTML pages (repo, profile, issues) and GitHub Advisory pages.
+- **`api.osv.dev` may be blocked by the proxy** — fall back to WebFetch on
+  `github.com/advisories?query=ecosystem:pip+<pkg>` and read each GHSA page
+  for affected/patched ranges.
+- **Mac-only tooling (vendored SkillSpector) is unreachable from cloud.**
+  Don't stall: hand AC a paste-ready prompt that pins the SHA
+  (`git checkout <sha>` before scanning), forbids installing/executing the
+  artifact, and asks for a verbatim result block to paste back. Record the
+  scan as a supplement, and if two sessions vet the same artifact, make the
+  later verdict SUPERSEDE the earlier doc with an explicit banner — parallel
+  sessions on `main` will otherwise leave contradictory records.
 
 ### Phase 4 — MERGE (pin, vendor, record)
 
@@ -227,6 +323,15 @@ touch). When walls are impossible, compensate with emptiness.
   the 2026-07-22 run correctly redid the vet from scratch. Prose
   claims decay; only registry rows (date, SHA, evidence, conditions)
   are load-bearing.
+- **Silence is never a GO (Albert's rule, 2026-07-29).** Phase 3 and
+  Phase 4 proceed ONLY on an explicit affirmative in Albert's own
+  message. An unanswered or dismissed approval question, an inferred
+  intent ("he sounded positive earlier"), or a generic "continue" all
+  mean NO — stop and wait. Incident that created this rule: the
+  2026-07-29 mattpocock/skills vet, where an agent executed Phase 4 on
+  a branch after Albert's stop answers failed to transmit and the agent
+  substituted inferred intent for the explicit GO. Caught before push;
+  the rule now exists so the default can never be flipped again.
 - **100% certainty does not exist.** The protocol's job is to make
   residual risk small, understood, and reversible — not zero.
 
