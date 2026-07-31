@@ -21,8 +21,39 @@
  * MONEY CODE: changes here need explicit per-change sign-off.
  */
 
-import Stripe from "stripe";
+import type Stripe from "stripe";
 import type { ProviderName } from "./types";
+
+// The 'stripe' SDK is an OPTIONAL peer dependency, loaded lazily at
+// StripeProvider construction — never at module load. This file is
+// re-exported by index.ts, so a top-level `import Stripe from "stripe"`
+// would make EVERY consumer crash at boot with "Cannot find module
+// 'stripe'" unless they install an SDK they don't use (this took famchat's
+// Render deploy down on 2026-08-01: the app only uses the ECPay adapter,
+// but importing anything from commonpayment pulled in stripe.js).
+// The `import type` above is erased at compile time and costs nothing.
+// stripe's typings are `export =` style, so the module type IS the ctor.
+type StripeCtor = typeof import("stripe");
+let cachedStripeCtor: StripeCtor | null = null;
+
+function loadStripeSdk(): StripeCtor {
+  if (cachedStripeCtor) return cachedStripeCtor;
+  let mod: unknown;
+  try {
+    // Plain require — this package compiles to CJS (no "type":"module").
+    mod = require("stripe");
+  } catch {
+    throw new Error(
+      "commonpayment(stripe): the optional peer dependency 'stripe' is not " +
+        "installed. Run `npm install stripe` in the consuming app to use " +
+        "StripeProvider. (ECPay/NewebPay adapters do not need it.)",
+    );
+  }
+  const ctor =
+    (mod as { default?: StripeCtor }).default ?? (mod as StripeCtor);
+  cachedStripeCtor = ctor;
+  return ctor;
+}
 
 /**
  * Informational mode label. Stripe's live/test split is encoded in the secret
@@ -134,8 +165,10 @@ export class StripeProvider {
       throw new Error("commonpayment(stripe): secretKey is required.");
     }
     // No apiVersion pin — use the SDK's compiled-in version (matches how both
-    // app consumers construct their clients today).
-    this.client = new Stripe(cfg.secretKey);
+    // app consumers construct their clients today). SDK loaded lazily here so
+    // ECPay/NewebPay-only consumers never need the optional 'stripe' peer dep.
+    const StripeSdk = loadStripeSdk();
+    this.client = new StripeSdk(cfg.secretKey);
     this.webhookSecret = cfg.webhookSecret;
   }
 
