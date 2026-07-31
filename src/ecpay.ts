@@ -52,6 +52,7 @@ import type {
   PaymentMethod,
   PaymentProvider,
   ProviderName,
+  RecurringSpec,
   VerifiedOrderResult,
 } from "./types";
 
@@ -197,6 +198,55 @@ function verifyCheckMacValue(
 }
 
 // ---------------------------------------------------------------------------
+// Recurring (定期定額) validation
+// ---------------------------------------------------------------------------
+
+/**
+ * ECPay's documented per-periodType bounds for `Frequency` /
+ * `ExecTimes`. Out-of-range values are rejected by ECPay at order
+ * time with an opaque error — validate here so misconfiguration
+ * fails loudly at build time instead.
+ */
+const RECURRING_LIMITS: Record<
+  RecurringSpec["periodType"],
+  { maxFrequency: number; maxExecTimes: number }
+> = {
+  D: { maxFrequency: 365, maxExecTimes: 999 },
+  M: { maxFrequency: 12, maxExecTimes: 99 },
+  Y: { maxFrequency: 1, maxExecTimes: 9 },
+};
+
+function validateRecurring(spec: RecurringSpec): void {
+  const limits = RECURRING_LIMITS[spec.periodType];
+  if (!limits) {
+    throw new Error(`ecpay recurring: invalid periodType "${spec.periodType}"`);
+  }
+  if (
+    !Number.isInteger(spec.frequency) ||
+    spec.frequency < 1 ||
+    spec.frequency > limits.maxFrequency
+  ) {
+    throw new Error(
+      `ecpay recurring: frequency must be an integer 1–${limits.maxFrequency} for periodType ${spec.periodType}, got ${spec.frequency}`,
+    );
+  }
+  if (
+    !Number.isInteger(spec.totalExecutions) ||
+    spec.totalExecutions < 1 ||
+    spec.totalExecutions > limits.maxExecTimes
+  ) {
+    throw new Error(
+      `ecpay recurring: totalExecutions must be an integer 1–${limits.maxExecTimes} for periodType ${spec.periodType}, got ${spec.totalExecutions}`,
+    );
+  }
+  if (!/^https:\/\//.test(spec.periodNotifyUrl)) {
+    throw new Error(
+      "ecpay recurring: periodNotifyUrl must be an absolute https:// URL",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Time formatting — ECPay wants TW-local `YYYY/MM/DD HH:mm:ss`
 // ---------------------------------------------------------------------------
 
@@ -299,6 +349,30 @@ export class EcpayProvider implements PaymentProvider {
       fields.OrderResultURL = input.orderResultUrl;
     }
 
+    // Recurring (定期定額) — card-on-file subscription. First charge
+    // settles at checkout; ECPay then re-authorizes PeriodAmount every
+    // Frequency×PeriodType until ExecTimes charges have run, POSTing
+    // each result to PeriodReturnURL. Card-only: any explicit
+    // non-credit preferredMethod is a caller bug (a recurring order
+    // silently paid once via ATM would be a billing hole), so throw
+    // rather than downgrade.
+    if (input.recurring) {
+      validateRecurring(input.recurring);
+      if (input.preferredMethod && input.preferredMethod !== "CREDIT") {
+        throw new Error(
+          `ecpay recurring: requires the CREDIT method, got preferredMethod=${input.preferredMethod}`,
+        );
+      }
+      fields.ChoosePayment = "Credit";
+      // ECPay requires PeriodAmount === TotalAmount; derive rather
+      // than accept a second amount that could disagree.
+      fields.PeriodAmount = String(input.amountTwd);
+      fields.PeriodType = input.recurring.periodType;
+      fields.Frequency = String(input.recurring.frequency);
+      fields.ExecTimes = String(input.recurring.totalExecutions);
+      fields.PeriodReturnURL = input.recurring.periodNotifyUrl;
+    }
+
     fields.CheckMacValue = buildCheckMacValue(
       fields,
       this.cfg.hashKey,
@@ -348,7 +422,11 @@ export class EcpayProvider implements PaymentProvider {
     const paymentStatus: VerifiedOrderResult["paymentStatus"] =
       rtnCodeRaw === "1" ? "success" : "failed";
 
-    const amountRaw = fields.TradeAmt ?? "0";
+    // Initial-payment callbacks carry the amount as `TradeAmt`;
+    // periodic (定期定額) re-authorization callbacks carry it as
+    // `Amount` instead (and have no `TradeNo` — correlate those by
+    // MerchantTradeNo + Gwsr in rawFields).
+    const amountRaw = fields.TradeAmt ?? fields.Amount ?? "0";
     const amountTwd = Number.parseInt(amountRaw, 10);
 
     const orderResult: VerifiedOrderResult = {

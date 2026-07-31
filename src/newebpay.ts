@@ -375,6 +375,16 @@ export class NewebpayProvider implements PaymentProvider {
    * `MPG02002` "缺少參數 EncryptType", move it to the outer fields.)
    */
   buildOrder(input: BuildOrderInput): BuildOrderResult {
+    // Recurring (定期定額) is ECPay-only today. NewebPay's periodic
+    // product is a separate API (委託單), not MPG fields — silently
+    // taking a one-off payment for a subscription order would be a
+    // billing bug, so fail loudly instead.
+    if (input.recurring) {
+      throw new Error(
+        "newebpay: recurring (定期定額) is not supported by this adapter — use the ecpay provider",
+      );
+    }
+
     // Step 1: build inner params.
     // ItemDesc has a NewebPay-imposed 50-char cap (vs ECPay's 200) —
     // truncate to be safe. CJK is fine in TradeInfo (AES-encrypted),

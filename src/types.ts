@@ -181,6 +181,69 @@ export interface BuildOrderInput {
    * its native enum/flags.
    */
   preferredMethod?: PaymentMethod;
+
+  /**
+   * Optional recurring-billing schedule (定期定額). When present the
+   * order becomes a card-on-file subscription: the gateway charges
+   * `amountTwd` now AND re-charges it on the given schedule without
+   * further user interaction.
+   *
+   * Support is **ECPay-only** today (AioCheckOut V5 credit-card
+   * periodic fields). The NewebPay and Stripe adapters THROW when
+   * this field is set — a recurring order silently downgraded to a
+   * one-off charge is a billing bug, so unsupported adapters must
+   * fail loudly. First consumer: famchat (翻譯小年糕, NT$180/月).
+   */
+  recurring?: RecurringSpec;
+}
+
+/**
+ * Recurring-billing schedule for `BuildOrderInput.recurring`.
+ *
+ * Field semantics follow ECPay's 定期定額 model (the only adapter
+ * that implements it today):
+ *
+ *   - The FIRST charge of `amountTwd` happens at checkout; the
+ *     gateway then re-authorizes the same amount every
+ *     `frequency` × `periodType` until `totalExecutions` charges
+ *     (including the first) have run.
+ *   - Each re-authorization result is POSTed server-to-server to
+ *     `periodNotifyUrl` (ECPay `PeriodReturnURL`), signed the same
+ *     way as the initial callback — so the same
+ *     `provider.verifyCallback()` route can serve both. NOTE: the
+ *     periodic payload carries the amount as `Amount` (not
+ *     `TradeAmt`) and has NO `TradeNo`; correlate by
+ *     `merchantOrderId` + `Gwsr` in `rawFields`.
+ *   - Recurring forces the credit-card method (`ChoosePayment=Credit`)
+ *     — ECPay's periodic billing is card-only. Any other
+ *     `preferredMethod` is rejected.
+ *
+ * ECPay hard limits (validated in the adapter, throw on violation):
+ *   - periodType 'D': frequency 1–365, totalExecutions 1–999
+ *   - periodType 'M': frequency 1–12,  totalExecutions 1–99
+ *   - periodType 'Y': frequency 1,     totalExecutions 1–9
+ *
+ * 定期定額 must also be ENABLED on the production merchant account
+ * (ECPay 廠商後台 → 信用卡定期定額); the shared sandbox merchant
+ * `2000132` has it enabled.
+ */
+export interface RecurringSpec {
+  /** Charge cadence unit: day / month / year. */
+  periodType: "D" | "M" | "Y";
+  /** Charge every N units of `periodType` (e.g. M + 1 = monthly). */
+  frequency: number;
+  /**
+   * Total number of charges INCLUDING the first one at checkout.
+   * Use the provider max (e.g. 99 for monthly) for an "until
+   * cancelled" subscription — cancellation is then a merchant-
+   * backend action or simply letting the schedule lapse.
+   */
+  totalExecutions: number;
+  /**
+   * Absolute URL that receives each periodic re-authorization
+   * result server-to-server. May be the same route as `notifyUrl`.
+   */
+  periodNotifyUrl: string;
 }
 
 /**
