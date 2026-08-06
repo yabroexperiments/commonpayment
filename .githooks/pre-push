@@ -1,0 +1,159 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# pre-push secret guard  (tracked at .githooks/pre-push)
+#
+# Blocks a push when the outgoing commits ADD a credential-shaped string or a
+# secret-bearing filename. Exists because GHAS secret scanning is OFF on all
+# private repos: nothing on the server side would ever catch a leak there.
+# Both real leaks found in the 2026-08-05 sweep (gogolinesticker's ADMIN_SECRET
+# in a handoff doc, gogo-gallery's .env.local.bak) would have been stopped here.
+#
+# Enabled per-clone via ./setup.sh  ->  git config core.hooksPath .githooks
+# Escape hatch:  git push --no-verify
+# Repo-local exceptions: .githooks/secret-allowlist.txt (one ERE per line)
+#
+# Design notes:
+#  - Scans ADDED lines only, in the commits actually being pushed. Existing
+#    history is not re-litigated; a known-dead secret in an old commit must
+#    not block every future push.
+#  - Prints what it scanned. A silent pass is indistinguishable from a no-op,
+#    so this always reports commit/file counts.
+# ---------------------------------------------------------------------------
+
+Z40="0000000000000000000000000000000000000000"
+ALLOWLIST="$(git rev-parse --show-toplevel)/.githooks/secret-allowlist.txt"
+found=0
+scanned_commits=0
+scanned_files=0
+
+# High-confidence credential shapes. Deliberately provider-specific: a noisy
+# guard gets bypassed with --no-verify and then protects nothing.
+PATTERNS='(AKIA|ASIA)[0-9A-Z]{16}
+gh[pousr]_[A-Za-z0-9]{36,}
+github_pat_[A-Za-z0-9_]{60,}
+sk-ant-[A-Za-z0-9_-]{20,}
+sk-proj-[A-Za-z0-9_-]{20,}
+sk-[A-Za-z0-9]{48}
+(sk|rk)_live_[A-Za-z0-9]{20,}
+whsec_[A-Za-z0-9]{20,}
+AIza[0-9A-Za-z_-]{35}
+GOCSPX-[A-Za-z0-9_-]{20,}
+xox[abposr]-[A-Za-z0-9-]{10,}
+SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}
+npm_[A-Za-z0-9]{36}
+sb_secret_[A-Za-z0-9_-]{20,}
+re_[A-Za-z0-9]{8,}_[A-Za-z0-9]{20,}
+-----BEGIN [A-Z ]*PRIVATE KEY
+eyJhbGciOi[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}
+cloudinary://[0-9]{6,}:[A-Za-z0-9_-]{10,}
+[0-9]{8,10}:AA[A-Za-z0-9_-]{33}
+(SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?TOKEN|AUTH_?TOKEN|PRIVATE_?KEY|SERVICE_ROLE(_KEY)?|CLIENT_SECRET|ADMIN_SECRET)[A-Z0-9_]*[[:space:]]*[=:][[:space:]]*.?[A-Za-z0-9_/+.!@#$%^&*-]{12,}'
+
+# Never-secret shapes: env indirection, placeholders, obvious templates.
+# Deliberately NARROW. An earlier draft allowed any line containing the word
+# "example", which silently swallowed a real-looking AWS key during testing —
+# a bare word match here creates a hole big enough to leak through.
+# NOTE: every line here must be a COMPLETE standalone ERE. grep treats each
+# line of a multi-line pattern as its own expression, so a line ending in "|"
+# means "or empty" and matches EVERYTHING — which silently disables the whole
+# guard while it still prints a cheerful ✓. That bug was caught by the test
+# matrix on 2026-08-06; do not reintroduce a trailing pipe.
+BUILTIN_ALLOW='process\.env
+import\.meta\.env
+os\.environ
+ENV\[
+\$\{
+\{\{
+<[A-Za-z0-9_.-]+>
+your[_-]?(api|key|token|secret|password)
+placeholder
+changeme
+replace[_-]?(me|this|with)
+xxxxx
+EXAMPLEKEY
+_EXAMPLE
+EXAMPLE_
+\.example
+example\.(com|org|net)
+[Rr][Ee][Dd][Aa][Cc][Tt][Ee][Dd]
+\*\*\*\*
+=[[:space:]]*$
+:[[:space:]]*""
+=""
+(secret|token|key|password)[[:space:]]*[=:][[:space:]]*(process|await|config|opts|args|params|req|body|null|undefined|None|true|false)'
+
+# Filenames that must never be committed at all.
+BAD_FILES='(^|/)\.env(\.[A-Za-z0-9_-]+)*$|(^|/)\.env\..*\.local$|\.pem$|\.p12$|\.pfx$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)\.npmrc$|service-account.*\.json$|credentials\.json$'
+# ...except these, which are templates by convention.
+OK_FILES='\.env\.example$|\.env\.sample$|\.env\.template$|\.env\..*\.example$'
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$Z40" ] && continue            # branch deletion
+
+    if [ "$remote_sha" = "$Z40" ]; then
+        # New branch: only commits not already on some remote.
+        range=$(git rev-list "$local_sha" --not --remotes 2>/dev/null)
+        [ -z "$range" ] && continue
+        base=$(git rev-list "$local_sha" --not --remotes 2>/dev/null | tail -1)
+        base="${base}^"
+        git rev-parse --verify -q "$base" >/dev/null 2>&1 || base=$(git hash-object -t tree /dev/null)
+    else
+        base="$remote_sha"
+    fi
+
+    n=$(git rev-list --count "$base..$local_sha" 2>/dev/null || echo 0)
+    scanned_commits=$((scanned_commits + n))
+
+    files=$(git diff --name-only --diff-filter=ACMR "$base" "$local_sha" 2>/dev/null)
+    [ -z "$files" ] && continue
+    scanned_files=$((scanned_files + $(printf '%s\n' "$files" | grep -c . )))
+
+    # --- 1. forbidden filenames -------------------------------------------
+    bad=$(printf '%s\n' "$files" | grep -E "$BAD_FILES" | grep -vE "$OK_FILES")
+    if [ -n "$bad" ]; then
+        echo "✗ pre-push BLOCKED — secret-bearing file(s) in $local_ref:"
+        printf '    %s\n' $bad
+        found=1
+    fi
+
+    # --- 2. credential-shaped ADDED lines ---------------------------------
+    added=$(git diff --unified=0 --diff-filter=ACMR "$base" "$local_sha" 2>/dev/null \
+            | grep -E '^\+' | grep -vE '^\+\+\+')
+
+    if [ -n "$added" ]; then
+        hits=$(printf '%s\n' "$added" | grep -EIn "$PATTERNS" 2>/dev/null \
+               | grep -vEi "$BUILTIN_ALLOW")
+        if [ -n "$hits" ] && [ -f "$ALLOWLIST" ]; then
+            hits=$(printf '%s\n' "$hits" | grep -vE -f "$ALLOWLIST" 2>/dev/null)
+        fi
+        if [ -n "$hits" ]; then
+            echo "✗ pre-push BLOCKED — credential-shaped string(s) added in $local_ref:"
+            printf '%s\n' "$hits" | head -20 | cut -c1-160 | sed 's/^/    /'
+            n_hits=$(printf '%s\n' "$hits" | grep -c .)
+            [ "$n_hits" -gt 20 ] && echo "    ... and $((n_hits - 20)) more"
+            found=1
+        fi
+    fi
+done
+
+if [ "$found" -ne 0 ]; then
+    cat <<'EOF'
+
+  ── How to proceed ────────────────────────────────────────────────
+  A pushed secret cannot be fully erased: GitHub keeps old commits
+  reachable by SHA even after a force-push. Rotation is the only real
+  remedy — so fix it BEFORE it leaves this machine.
+
+    1. Remove the value; read it from env instead (src/lib/config.ts).
+    2. Rewrite the offending commit:  git commit --amend    (or rebase)
+    3. If it is a genuine false positive, add an ERE for it to
+       .githooks/secret-allowlist.txt  — with a comment saying why.
+
+  Deliberate override:  git push --no-verify
+  ──────────────────────────────────────────────────────────────────
+EOF
+    exit 1
+fi
+
+echo "✓ pre-push secret guard: ${scanned_commits} commit(s), ${scanned_files} file(s) scanned, no secrets found"
+exit 0
