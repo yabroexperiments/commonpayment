@@ -82,6 +82,19 @@ Re-read the key files, then build exactly the chosen approach, following the
 repo's conventions (naming, comment density, error handling, config via the
 repo's established pattern). Money-code guard applies with full force here.
 
+**Success criteria before code** (added 2026-08-15, Karpathy ingest —
+`yabro-hq/docs/company/research/2026-08-15-karpathy-llm-coding-best-practices.md`):
+before the first edit, restate the spec's Success criterion as
+machine-checkable checks (a test that must pass, a curl that must return X,
+a build that must boot). **If no checkable criterion can be named, STOP
+LOUDLY and say so** — "I cannot state how we'd verify this" is a Phase 3
+gap, never something to silently build through.
+
+**Naive-correct-first**: when performance or cleverness tempts, build the
+obviously-correct simple version first and lock it in with the tests; only
+then optimize, with the tests holding correctness. Never start from the
+clever version.
+
 **Build test-first** (adapted 2026-07-29 from Matt Pocock's tdd skill, MIT,
 vetted @ 2ab9580 — see yabro-hq/docs/vetted-external-code.md):
 - **Agree the seams first.** A seam = the public boundary a test observes
@@ -116,6 +129,15 @@ repo's conventions, and is it correct? Parallel reviewer passes:
 bugs/correctness · simplicity/DRY · repo-convention adherence. Report only
 findings you are ≥80% confident are real, each with file:line and a concrete
 fix.
+
+The simplicity pass runs the **de-bloat checklist** (2026-08-15, Karpathy
+ingest — agents systematically over-engineer): (a) no dead code left behind;
+(b) no try/catch that swallows an error without a positive control proving
+the happy path fires; (c) no abstraction with a single caller; (d) no
+drive-by edits to comments/code orthogonal to the task; (e) ask the
+100-line question — "couldn't this be 10× smaller?" — and if yes, shrink it
+before presenting. Findings here are normal Axis A findings: named, loud,
+file:line.
 
 **Axis B — Requirement.** Does this achieve the spec's **Goal** and satisfy
 its **Success criterion**? Delegate to `qa-verifier` with a fresh context,
