@@ -1,5 +1,5 @@
 ---
-name: resume
+name: backtowork
 description: Bootstrap a fresh session from the last handoff — pull, read state, brief me
 ---
 

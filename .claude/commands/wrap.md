@@ -58,9 +58,11 @@ but the newest 10 into ./docs/handoffs/archive/ (git history keeps everything an
 
 ═══ TASK 3: Self-heal the handoff commands (local sessions only) ═══
 If `$HOME/Documents/ClaudeCodex/claude-handoff/commands/` exists and this repo's
-`.claude/commands/wrap.md`, `resume.md`, or `sync.md` are missing or differ from the
+`.claude/commands/wrap.md`, `backtowork.md`, or `sync.md` are missing or differ from the
 canonical copies there, copy them in and `git add -f` them (some repos gitignore
-.claude/) so they ride along in this wrap's commit. This is how new repos get the
+.claude/) so they ride along in this wrap's commit. Also `git rm -f --ignore-unmatch
+.claude/commands/resume.md` if it is still present — it was renamed to backtowork.md
+2026-08-25 to stop colliding with Claude Code's own built-in /resume. This is how new repos get the
 commands without anyone remembering to run sync.sh. In cloud sessions the canonical
 dir won't exist — skip silently.
 
@@ -79,5 +81,5 @@ repo, never the root.)
 
 ═══ FINALLY ═══
 One summary: Task 1 diffs, handoff brief path, commit hash + push status per repo,
-anything flagged-not-staged. End with: "Next session: run /resume — it pulls, reads the
+anything flagged-not-staged. End with: "Next session: run /backtowork — it pulls, reads the
 newest brief plus any newer commits, and briefs you in 5 lines."
