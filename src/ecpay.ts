@@ -49,9 +49,12 @@ import type {
   BuildOrderInput,
   BuildOrderResult,
   CallbackResult,
+  CancelRecurringInput,
+  CancelRecurringResult,
   PaymentMethod,
   PaymentProvider,
   ProviderName,
+  RecurringAction,
   RecurringSpec,
   VerifiedOrderResult,
 } from "./types";
@@ -66,6 +69,108 @@ const ENDPOINTS: Record<EcpayMode, string> = {
   stage: "https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5",
   production: "https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5",
 };
+
+/**
+ * 信用卡定期定額訂單作業 — the AIO endpoint that stops a recurring
+ * contract. Path only: the host is DERIVED from the configured
+ * checkout endpoint (see `periodActionEndpoint`) so cancellation
+ * can never end up pointed at a different environment from the
+ * checkout that created the schedule.
+ *
+ * ⚠️ Do NOT confuse this with
+ * `https://ecpayment.ecpay.com.tw/1.0.0/Cashier/CreditCardPeriodAction`.
+ * That is the 站內付 2.0 (ECPG) product: same path, different host,
+ * and a completely different protocol — JSON with an AES-128-CBC
+ * `Data` envelope instead of a signed form POST. Orders created
+ * through AioCheckOut/V5 must be cancelled through THIS one; the
+ * other will not recognise the MerchantTradeNo.
+ *
+ * Source: ECPay's own SDK example,
+ * scripts/SDK_PHP/example/Payment/Aio/CreditCardPeriodAction.php
+ * (ECPay/ECPay-API-Skill), which posts MerchantID / MerchantTradeNo
+ * / Action / TimeStamp with the ordinary AIO CheckMacValue.
+ */
+const PERIOD_ACTION_PATH = "/Cashier/CreditCardPeriodAction";
+
+/**
+ * ECPay's `Action` values. `Cancel` terminates the schedule;
+ * `ReAuth` retries a charge that failed authorisation and stops
+ * nothing at all. Several third-party write-ups have these the
+ * wrong way round — the mapping here follows ECPay's own SDK
+ * comment: "ReAuth(授權失敗交易)、Cancel(終止定期定額後續交易)".
+ *
+ * ⚠️ `ReAuth` cannot be exercised in the stage environment.
+ */
+const PERIOD_ACTIONS: Record<RecurringAction, "Cancel" | "ReAuth"> = {
+  cancel: "Cancel",
+  reauth: "ReAuth",
+};
+
+/**
+ * Swap the checkout endpoint's path for the period-action path,
+ * keeping its origin. Deriving rather than configuring means the
+ * two cannot drift: a provider built for stage cancels on stage,
+ * and one built for production cancels on production, with no
+ * second env var to get wrong.
+ */
+export function periodActionEndpoint(checkoutEndpoint: string): string {
+  const url = new URL(checkoutEndpoint);
+  url.pathname = PERIOD_ACTION_PATH;
+  url.search = "";
+  return url.toString();
+}
+
+/**
+ * The signed form fields for a period action. Pure and exported so
+ * the signing can be tested without touching the network — the
+ * whole risk of this call is in the signature, not the transport.
+ *
+ * `TimeStamp` (capital S — ECPay spells it differently here from
+ * the `Timestamp` used by its JSON APIs) is Unix seconds.
+ */
+export function buildPeriodActionFields(
+  cfg: Pick<EcpayProviderConfig, "merchantId" | "hashKey" | "hashIV">,
+  input: {
+    merchantOrderId: string;
+    action?: RecurringAction;
+    now?: Date;
+  },
+): Record<string, string> {
+  const merchantOrderId = input.merchantOrderId.trim();
+  if (!merchantOrderId) {
+    throw new Error("ecpay period action: merchantOrderId is required");
+  }
+  const action = input.action ?? "cancel";
+  const ecpayAction = PERIOD_ACTIONS[action];
+  if (!ecpayAction) {
+    throw new Error(`ecpay period action: unknown action "${action}"`);
+  }
+  const fields: Record<string, string> = {
+    MerchantID: cfg.merchantId,
+    MerchantTradeNo: merchantOrderId,
+    Action: ecpayAction,
+    TimeStamp: String(Math.floor((input.now?.getTime() ?? Date.now()) / 1000)),
+  };
+  fields.CheckMacValue = buildCheckMacValue(fields, cfg.hashKey, cfg.hashIV);
+  return fields;
+}
+
+/**
+ * Parse this endpoint's reply. It answers with a URL-encoded
+ * key=value string (NOT JSON, and NOT CheckMacValue-signed — the
+ * SDK routes it through its unverified encoded-string reader), so
+ * the shape is read leniently and the raw body is always kept.
+ *
+ * Returns null when nothing key-like could be read, which the
+ * caller treats as `malformed` rather than as either outcome.
+ */
+export function parsePeriodActionResponse(
+  body: string,
+): Record<string, string> | null {
+  const trimmed = body.trim();
+  if (!trimmed || !trimmed.includes("=")) return null;
+  return parseFormBody(trimmed);
+}
 
 /**
  * Public ECPay sandbox credentials — anyone can use these for
@@ -458,6 +563,98 @@ export class EcpayProvider implements PaymentProvider {
   formatAck(verdict: "ok" | "reject", detail?: string): Ack {
     const body = verdict === "ok" ? "1|OK" : `0|${detail ?? "rejected"}`;
     return { body, contentType: "text/plain; charset=utf-8" };
+  }
+
+  /**
+   * Terminate (or re-authorise) a 定期定額 contract.
+   *
+   * This exists because removing a subscription from your OWN
+   * database does not stop ECPay's schedule. The card keeps being
+   * charged monthly until someone acts on ECPay's side — either
+   * here, or by hand in the 廠商後台. A product that lets a
+   * customer "cancel" without this is quietly still billing them.
+   *
+   * FAILS CLOSED, on purpose and in every direction:
+   *   - a non-2xx reply is `rejected`, never assumed-fine;
+   *   - a reply we cannot parse is `malformed`, not success;
+   *   - a reply that parses but does not carry RtnCode=1 is
+   *     `rejected`, carrying ECPay's own code and message;
+   *   - a network failure is `network`, and the caller must NOT
+   *     record the subscription as stopped.
+   * The asymmetry is deliberate: a false "cancelled" keeps taking
+   * someone's money and nobody finds out for a month, whereas a
+   * false "failed" costs one retry.
+   *
+   * The 30s timeout matters on a sleepy free-tier host — without
+   * one, a hung socket holds the request open until the platform
+   * kills it, and the caller cannot tell that from a slow success.
+   */
+  async cancelRecurring(
+    input: CancelRecurringInput,
+  ): Promise<CancelRecurringResult> {
+    let fields: Record<string, string>;
+    try {
+      fields = buildPeriodActionFields(this.cfg, {
+        merchantOrderId: input.merchantOrderId,
+        action: input.action,
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "malformed",
+        detail: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    const endpoint = periodActionEndpoint(this.cfg.endpoint);
+    let res: Response;
+    let body: string;
+    try {
+      res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams(fields).toString(),
+        signal: AbortSignal.timeout(30_000),
+      });
+      body = await res.text();
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "network",
+        detail: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        reason: "rejected",
+        detail: `HTTP ${res.status}`,
+        raw: body,
+      };
+    }
+
+    const parsed = parsePeriodActionResponse(body);
+    if (!parsed) {
+      return { ok: false, reason: "malformed", raw: body };
+    }
+
+    const providerCode = parsed.RtnCode ?? "";
+    const providerMessage = parsed.RtnMsg ?? "";
+    // ECPay signals success with RtnCode=1 across the AIO family.
+    // Anything else — including an absent code — is a refusal.
+    if (providerCode !== "1") {
+      return {
+        ok: false,
+        reason: "rejected",
+        providerCode,
+        providerMessage,
+        raw: body,
+      };
+    }
+    return { ok: true, providerCode, providerMessage, raw: body };
   }
 }
 

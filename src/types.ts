@@ -392,6 +392,60 @@ export interface Ack {
  *
  * See design doc §3 / §4 for the per-adapter implementation shape.
  */
+/**
+ * Which side of a recurring contract an action targets.
+ *
+ * Named after ECPay's `Action` field, whose two values do very
+ * different things and are easy to transpose:
+ *   - `cancel`  — 終止定期定額後續交易. Stops all future charges.
+ *                 IRREVERSIBLE; the customer must re-subscribe.
+ *   - `reauth`  — 重新授權. Retries a charge that failed
+ *                 authorisation. Does NOT stop anything.
+ * Transposing them silently keeps charging a customer who asked
+ * to leave, which is why they are separate literals rather than a
+ * boolean.
+ */
+export type RecurringAction = "cancel" | "reauth";
+
+export interface CancelRecurringInput {
+  /**
+   * The merchant order id of the order that CREATED the recurring
+   * contract — not of any later renewal charge. ECPay identifies a
+   * 定期定額 schedule by its originating MerchantTradeNo.
+   */
+  merchantOrderId: string;
+  /** Defaults to `"cancel"`. */
+  action?: RecurringAction;
+}
+
+export type CancelRecurringResult =
+  | {
+      ok: true;
+      /** Provider's own success code, kept for the audit trail. */
+      providerCode: string;
+      providerMessage: string;
+      /** Verbatim response body, for the audit row. */
+      raw: string;
+    }
+  | {
+      ok: false;
+      /**
+       * `unsupported` — this adapter cannot cancel (no API).
+       * `rejected`    — the provider answered, and said no.
+       * `network`     — the request never got an answer.
+       * `malformed`   — an answer arrived that we cannot read. This
+       *                 is deliberately NOT success: an unreadable
+       *                 reply is the one case where reporting
+       *                 "cancelled" would be a lie with money
+       *                 attached.
+       */
+      reason: "unsupported" | "rejected" | "network" | "malformed";
+      providerCode?: string;
+      providerMessage?: string;
+      detail?: string;
+      raw?: string;
+    };
+
 export interface PaymentProvider {
   /** Which gateway this adapter speaks to. */
   readonly name: ProviderName;
@@ -449,4 +503,23 @@ export interface PaymentProvider {
    *     requests that no retry will fix, prefer HTTP 400 with no body.
    */
   formatAck(verdict: "ok" | "reject", detail?: string): Ack;
+
+  /**
+   * Stop a recurring contract at the provider.
+   *
+   * OPTIONAL, because not every adapter has one: removing a
+   * subscription from your own database does not stop the
+   * gateway's schedule, and an adapter with no cancel API must say
+   * so rather than let a caller believe silence meant success.
+   * Callers should branch on its absence:
+   *
+   *   const stop = provider.cancelRecurring;
+   *   const res = stop
+   *     ? await stop.call(provider, { merchantOrderId })
+   *     : { ok: false, reason: "unsupported" } as const;
+   *
+   * Implementations MUST fail closed: any answer that cannot be
+   * read as an explicit success is an error, never an assumed one.
+   */
+  cancelRecurring?(input: CancelRecurringInput): Promise<CancelRecurringResult>;
 }
