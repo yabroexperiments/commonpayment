@@ -87,6 +87,46 @@ return new Response(ack.body, {
 });
 ```
 
+## Cancelling a recurring subscription
+
+Deleting a subscription from your OWN database does not stop the
+gateway. ECPay's 定期定額 schedule keeps charging the card monthly
+until it is stopped on ECPay's side, so a product that lets someone
+"cancel" without this call is quietly still billing them.
+
+`cancelRecurring` is OPTIONAL on `PaymentProvider` — an adapter with
+no cancel API must say so rather than let a caller read silence as
+success. Branch on its absence:
+
+```ts
+const stop = provider.cancelRecurring;
+const res = stop
+  ? await stop.call(provider, { merchantOrderId })   // the ORIGINAL
+  : ({ ok: false, reason: "unsupported" } as const); // subscribing order
+
+if (res.ok) {
+  // record cancelled, with res.providerCode / res.raw for the audit trail
+} else {
+  // res.reason: "unsupported" | "rejected" | "network" | "malformed"
+  // Do NOT mark it cancelled. Surface it so a human can stop the
+  // schedule by hand in the 廠商後台.
+}
+```
+
+Two things it will not do, on purpose:
+
+- **It never assumes success.** A non-2xx reply, an unreadable reply,
+  or a reply without `RtnCode=1` are all failures. A false "cancelled"
+  keeps taking someone's money and nobody notices for a month; a false
+  "failed" costs one retry.
+- **It never guesses the environment.** The endpoint is derived from
+  the configured checkout endpoint, so a provider built for stage
+  cancels on stage. There is no second env var to get wrong.
+
+⚠️ `merchantOrderId` is the order that CREATED the contract, not any
+later renewal charge — ECPay identifies a schedule by its originating
+`MerchantTradeNo`.
+
 ## Sandbox creds baked in (public testing creds — no signup needed)
 
 Each adapter has shared sandbox creds baked in as fallback when env

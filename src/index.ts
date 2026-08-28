@@ -78,6 +78,12 @@ export * from "./types";
 export {
   EcpayProvider,
   createEcpayProvider,
+  // Pure helpers behind cancelRecurring. Exported so the signing and
+  // response-reading can be unit-tested without a network call — the
+  // whole risk of a cancel is in the signature, not the transport.
+  periodActionEndpoint,
+  buildPeriodActionFields,
+  parsePeriodActionResponse,
   type EcpayMode,
   type EcpayProviderConfig,
 } from "./ecpay";
