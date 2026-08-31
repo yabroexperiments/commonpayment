@@ -34,6 +34,18 @@ Invoke via the `/vet <url-or-name>` command (`.claude/commands/vet.md`).
    results (2026-07-21). Weigh instead: real commit history (age,
    cadence, multiple contributors), real issues/PRs from real users,
    a recognizable author, a real license.
+2b. **Engagement SHAPE beats any single count (added 2026-08-30,
+   re-walkthrough-pro).** Stars are gameable and forks nearly as much, but the
+   RATIO between them and real conversation is not: a repo claiming **149★ / 39
+   forks with ZERO issues and ZERO PRs ever** is internally inconsistent — 39
+   people forking something while nobody ever files a bug, a question, or a
+   patch does not happen to genuinely-used code. Count issues and PRs
+   **including closed ones** (`/repos/<o>/<r>/issues?state=all`); an empty
+   result beside a large fork count is a stronger inauthenticity signal than any
+   star number. Also read the COMMIT SUBJECTS for the author's incentive: one of
+   that repo's three commits was *"update Higgsfield MCP **affiliate link** to
+   v3 earning series"* — a referral kickback per install rewards install VOLUME,
+   not your safety, and is a first-class intake finding on its own.
 3. **Trust tiers** (record in the verdict):
    - **T1 — Official/first-party:** Anthropic, the tool's own vendor
      (e.g. Figma's MCP for Figma), major orgs (NVIDIA, Google, Vercel,

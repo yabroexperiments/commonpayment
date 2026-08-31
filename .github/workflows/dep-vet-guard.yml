@@ -1,0 +1,22 @@
+# dep-vet-guard.yml — server-side ECVP dependency guard (template; installed to
+# .github/workflows/ by install-vet-protocol.sh — edit the yabro-hq master).
+# Fails when a push/PR adds a dependency name absent from this repo's
+# docs/vetted-external-code.md. See scripts/dep-vet-guard.mjs for details.
+name: dep-vet-guard
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  dep-vet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Diff dependency manifests against the vetted registry
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/dep-vet-guard.mjs "$BASE_SHA" "${{ github.sha }}"
