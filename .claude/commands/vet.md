@@ -45,8 +45,17 @@ encoded blobs, hidden text; (b) code-layer behavior — what runs,
 reads, writes, and WHERE anything is sent; flag the exfil shape
 (secret-read + network-write together); (c) capability honesty — does
 it need what it asks for; (d) runtime-fetched code / auto-update
-(defeats pinning). Then give me the verdict + evidence and WAIT for my
-go before Phase 3.
+(defeats pinning); (e) SUPPLY-CHAIN ENUMERATION — grep prose AND code
+for every install/download instruction (pip/npm/brew/npx/curl|sh/
+git clone/binary-fetching library calls); each hit is a NAMED
+sub-artifact the verdict must dispose of: vet its RESOLVED transitive
+tree now (OSV/Socket on the tree, not the name list; assert binary
+versions from the artifact, never the URL label), or condition it as
+"separate /vet + my approval before install". A verdict may NEVER
+"accept" a chain it did not examine — that wording is banned (it is
+how the 2026-08-31 hello-irene incident happened; the install gate
+blocks such installs regardless). Then give me the verdict + evidence
+and WAIT for my go before Phase 3.
 
 ═══ PHASE 3: QUARANTINE TEST ═══
 Throwaway session/container, ZERO real secrets, dummy repo — never a
