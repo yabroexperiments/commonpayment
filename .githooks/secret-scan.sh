@@ -39,6 +39,7 @@ re_[A-Za-z0-9]{8,}_[A-Za-z0-9]{20,}
 eyJhbGciOi[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{20,}
 cloudinary://[0-9]{6,}:[A-Za-z0-9_-]{10,}
 [0-9]{8,10}:AA[A-Za-z0-9_-]{33}
+(^|[^A-Za-z0-9])EAA[A-Za-z0-9]{100,}
 (SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?TOKEN|AUTH_?TOKEN|PRIVATE_?KEY|SERVICE_ROLE(_KEY)?|CLIENT_SECRET|ADMIN_SECRET)[A-Z0-9_]*[[:space:]]*[=:][[:space:]]*.?[A-Za-z0-9_/+.!@#$%^&*-]{12,}'
 
 # Never-secret shapes.
