@@ -48,6 +48,16 @@ decisions, specs) with paths instead of restating their content. Sections:
 8. Gotchas & Landmines (what broke or wasted time)
 9. Files Modified (one-line each)
 10. Env / Config / Dependency changes (.env, package.json, Airtable, Vercel)
+    ⚠️ NAMES ONLY, NEVER VALUES — not for a secret you just generated, not
+    "temporarily", not inside a sample curl. Write `CRON_SECRET — rotated, set on
+    Render + relay`, never the string itself. This section is exactly where
+    budgethelper leaked a live CRON_SECRET for six weeks (b233c0d, 2026-07-21): a
+    wrap documented the env change it had just made and pasted the working value
+    into this list, then again into a sample command. A pushed secret CANNOT be
+    un-pushed — GitHub serves it by SHA long after any force-push — so one
+    careless line costs a rotation, not an edit. A value that must be written
+    down goes in RECOVERY/key-rotation-worksheet.secret, which is gitignored and
+    is not in any repo.
 11. Commands to Resume (exact shell commands)
 12. Context the Summary Would Lose (almost-decisions, paths not taken, intuitions —
     write like emailing your amnesiac future self)
@@ -71,6 +81,11 @@ dir won't exist — skip silently.
    secret (.env*, *key*, *.secret, credentials, tokens), a scratch/temp file, or a large
    binary gets flagged in the final summary and NOT staged. Stage everything else,
    including untracked files.
+   That check is about FILES. The brief you just wrote is the other risk: re-read
+   §10 and any sample commands for literal credential values before staging. The
+   pre-push hook catches prose shapes since 2026-09-04 (a backticked value after a
+   credential word; `Authorization: Bearer <token>`), but a hit there means the
+   secret is already in a local commit — treat it as a rotation, not a typo.
 2. Commit with a clear session-summary message. Push to origin. If rejected,
    `git pull --rebase` and retry.
 3. Verify with `git status -sb` — the branch must show in sync with origin, not
