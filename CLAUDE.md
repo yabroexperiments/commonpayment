@@ -1,5 +1,28 @@
 # CLAUDE.md — commonpayment
 
+<!-- SESSION:BEGIN (managed by install-vet-protocol.sh — edit the yabro-hq copy, then re-run) -->
+> **🧵 MULTI-SESSION GIT — enforced by `.claude/session-guard.sh` at every session
+> start, local AND cloud (Albert, 2026-09-04; full protocol:
+> `docs/agents/MULTI-SESSION.md` in the workspace / `yabro-hq/docs/agents/`).**
+> A fresh cloud session clones `--depth 50`, and a SHALLOW clone makes git REPORT
+> FICTION — phantom `forced update`, invented ahead/behind, `merge-base` claiming
+> divergence for a plain ancestor. **NEVER `reset --hard`, force-push, or "recover"
+> a branch on that evidence.** The guard unshallows before you can read anything; if
+> it printed a failure, run `git fetch --unshallow --tags` yourself, re-read, and if it
+> still looks divergent STOP and ask AC. Then: **one session = one `claude/<slug>`
+> branch = one concern, merged the SAME DAY and deleted on merge** (`/wrap` does
+> both). **Partition by FILES, not topics** — read the guard's "branches active in
+> 24h" line and `git diff --name-only origin/main...origin/<b>` for each; overlap
+> means pick another concern. **Cap 5 concurrent** (the guard warns; it counts
+> branches, so delete-on-merge is what keeps it honest). **Serialize integration**:
+> merge one → gates → next; never `pull --rebase` a shared checkout carrying another
+> session's files — cherry-pick onto `origin/main` in a detached worktree. **CLAUDE.md
+> is rules + index, NOT a journal**: session learnings go to
+> `docs/decisions/<date>-<slug>.md` (unique by construction); folding them back in is a
+> single-writer act (`/distill`), never a wrap. `~/.claude/` does not exist in cloud —
+> only committed files reach a cloud session.
+<!-- SESSION:END -->
+
 > Shared payment-processor package for the yabroexperiments portfolio.
 > Sibling to `commongenerator`. Lives at `Projects/commonpayment/`
 > because it's used by apps OUTSIDE `PetBusiness/` too (e.g. SkinIQ
@@ -288,3 +311,26 @@ Original design doc:
 > editing. Call the cost out loud the moment work turns into repeated
 > deploy → eyeball → correct cycles.
 <!-- COST:END -->
+
+<!-- GEO:BEGIN (managed by install-vet-protocol.sh — edit the yabro-hq copy, then re-run) -->
+> **🌏 SERVING GEOGRAPHY — check where the SERVICES live, every time (Albert,
+> 2026-08-21).** Our users are in Taiwan; Vercel's default function region is
+> **iad1 (US East)**. A project that never set `"regions"` serves Taiwan from
+> Virginia, and if its store is in Asia every server render pays two
+> trans-Pacific crossings (~400–600ms of pure geography, multiplied by each
+> SERIAL query). **Before the first deploy of anything new, and whenever a
+> project feels slow, run `/geo-audit`**: inventory every service on the request
+> path (Vercel/Render function, Supabase/Postgres, storage, workers, webhook
+> senders, third-party APIs), read each one's ACTUAL region, and co-locate.
+> **Config is not runtime truth** — an absent `"regions"` key silently means
+> iad1 and the file never says so, so read the Vercel *production deployment
+> record* (`target: "production"`, not the newest preview) and Supabase
+> `get_project` → `region`. **Never inherit an infra fact from a sibling
+> project**: our own DBs sit in Seoul, Tokyo AND Singapore, and Supabase
+> `list_projects` under-reports (it showed 1 of them). Priority: a store you
+> hit with serial round trips wins → else the tightest timeout contract (a LINE
+> webhook ack ~1s belongs near LINE) → else the users → a fully static site
+> needs no change at all. Hobby plan = **exactly one region, never list two**.
+> Verify from the deployed record, never from the config you just wrote. Never
+> touch payment/checkout/callback code while editing region config.
+<!-- GEO:END -->
