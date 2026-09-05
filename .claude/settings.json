@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "S=\"${CLAUDE_PROJECT_DIR:-.}/.claude/session-guard.sh\"; [ -x \"$S\" ] || exit 0; \"$S\"; exit 0",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
