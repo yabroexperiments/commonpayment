@@ -66,5 +66,16 @@ if [ -f "$R/CLAUDE.md" ]; then
 fi
 
 [ -n "$out" ] || exit 0
-printf '{"systemMessage":"%s"}\n' "$(printf '%s' "$out" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\n\r')"
+# ── 5. Report on BOTH channels ──────────────────────────────────────────────────
+# Measured 2026-09-04 (gasbot, cloud): a SessionStart hook's `systemMessage` is shown
+# to the HUMAN in the UI and NEVER reaches the model — the agent, asked point-blank,
+# truthfully did not have it. Everything above that only printed systemMessage was
+# firing into a void as far as the agent is concerned. The field injected into the
+# model's context at SessionStart is hookSpecificOutput.additionalContext. Emit both:
+# additionalContext so the AGENT acts on it, systemMessage so AC sees it in the UI.
+# Two DISTINCT markers so the next cloud probe can tell which channel the agent saw.
+esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\n\r'; }
+printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' \
+  "$(esc "GUARD-UI-CHANNEL | $out")" \
+  "$(esc "GUARD-MODEL-CHANNEL | session-guard (.claude/session-guard.sh) ran at session start: $out")"
 exit 0
