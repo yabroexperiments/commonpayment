@@ -76,7 +76,7 @@ but the newest 10 into ./docs/handoffs/archive/ (git history keeps everything an
 
 ═══ TASK 3: Self-heal the handoff commands (local sessions only) ═══
 If `$HOME/Documents/ClaudeCodex/claude-handoff/commands/` exists and this repo's
-`.claude/commands/wrap.md`, `backtowork.md`, or `sync.md` are missing or differ from the
+`.claude/commands/wrap.md`, `backtowork.md`, `sync.md`, or `distill.md` are missing or differ from the
 canonical copies there, copy them in and `git add -f` them (some repos gitignore
 .claude/) so they ride along in this wrap's commit. Also `git rm -f --ignore-unmatch
 .claude/commands/resume.md` if it is still present — it was renamed to backtowork.md
