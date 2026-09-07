@@ -285,8 +285,8 @@ Original design doc:
 > installs FURTHER code (pip/npm/brew/npx/curl|sh/git clone) is a NEW
 > vetting event — STOP, tell Albert, /vet it, wait for his explicit
 > approval. On Albert's Mac this is enforced by a fail-closed install
-> gate; in CI by `dep-vet-guard.yml` (new dependency names must have a
-> registry row in the same push). RCA: yabro-hq
+> gate; in CI by the dep-vet step of `repo-guards.yml` (new dependency names
+> must have a registry row in the same push). RCA: yabro-hq
 > `docs/security/2026-08-31-ecvp-ingestion-rca.md`.
 <!-- ECVP:END -->
 

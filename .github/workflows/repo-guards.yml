@@ -1,0 +1,175 @@
+name: repo-guards
+
+# ONE workflow, ONE job, for every server-side guard this repo carries.
+#
+# WHY ONE JOB (2026-09-07): GitHub bills every job rounded UP to a whole minute.
+# Each guard finishes in 10-20 s, so as three or four separate workflows they
+# billed 3-4 minutes per push for ~45 s of work. Across the 28 private repos that
+# was ~1,790 of the account's 2,000 included minutes in the FIRST WEEK of
+# September (famchat 592, yabro-hq 425, twenty idle repos 16-36 each), and the
+# account was blocked outright for two days in August the same way. One job =
+# one billed minute per push, same checks. NEVER split these back into separate
+# workflows and never add a second job here — add a STEP.
+# Evidence + numbers: yabro-hq docs/decisions/2026-09-07-actions-minutes-repo-guards.md
+#
+# MASTER: yabro-hq/scripts/repo-guards/repo-guards.yml, installed by
+# scripts/install-repo-guards.sh (called by install-secret-guard.sh,
+# install-vet-protocol.sh --repo, bootstrap-repo.sh and the sweep). Edit the
+# master, then sweep — never this copy. Every step self-skips when the files it
+# needs are absent, so ONE file serves every repo.
+#
+# Steps, in order:
+#   1/4 secret-scan     credential-shaped strings in the pushed range. DETECTION:
+#                       by the time this runs the commit is on GitHub and old
+#                       commits stay reachable by SHA — ROTATE, don't just delete.
+#   2/4 dep-vet         a new dependency name needs a docs/vetted-external-code.md
+#                       row in the same push (ECVP, server side).
+#   3/4 agents-symlink  AGENTS.md must be a symlink to CLAUDE.md (Codex reads it).
+#   4/4 claude-md-guard size gate for the committed global CLAUDE.md mirror
+#                       (yabro-hq only; skipped where the script is absent).
+#
+# TRIGGERS: every push to every branch — the secret scan is the ONLY layer that
+# covers Codex Web / cloud sessions / fresh clones (core.hooksPath never travels
+# with a clone), and those sessions push claude/* branches, not main.
+# pull_request runs only for PRs from FORKS: a same-repo PR's commits were already
+# scanned when pushed, and a job skipped by `if:` never reaches a runner, so it
+# bills nothing. Main-only would save ~30% more on the busiest repos at the cost
+# of scanning session branches only at merge — an AC decision, not a default.
+#
+# NO cancel-in-progress: the secret scan covers before..HEAD of ONE push, so a
+# superseded run that gets cancelled leaves that push's commits unscanned. At one
+# ~15 s job per push the saving would have been rounding on rounding anyway.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the range-based guards need history
+
+      - name: Resolve the diff base once, for every range-based guard
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -u
+          Z40=0000000000000000000000000000000000000000
+          HEAD_SHA=$(git rev-parse HEAD)
+          BASE=""
+          if [ "$EVENT" = "pull_request" ] && [ -n "${PR_BASE:-}" ]; then
+            BASE="$PR_BASE"
+          elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "$Z40" ] \
+               && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            BASE="$BEFORE"
+          else
+            # New branch, force-push, workflow_dispatch, or unavailable base: fall
+            # back to the default branch's merge-base, else the whole tree. Never
+            # silently skip — a scan that quietly covers nothing is worse than none.
+            DEF="origin/${DEFAULT_BRANCH:-main}"
+            if git rev-parse --verify -q "$DEF" >/dev/null 2>&1; then
+              BASE=$(git merge-base "$DEF" "$HEAD_SHA" 2>/dev/null || true)
+            fi
+            if [ -z "${BASE:-}" ] || [ "$BASE" = "$HEAD_SHA" ]; then
+              BASE="tree"
+            fi
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "Range for this run: ${BASE}..${HEAD_SHA}  (base=tree means: scan the full tree)"
+
+      - name: "1/4 secret-scan: guard present, then scan the pushed range"
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+          HEAD_SHA: ${{ steps.base.outputs.head }}
+        run: |
+          set -u
+          missing=0
+          for f in .githooks/secret-scan.sh .githooks/pre-push; do
+            if [ ! -f "$f" ]; then echo "::error::$f is missing"; missing=1; fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "::error::Secret guard is not installed in this repo."
+            echo "Reinstall: yabro-hq/scripts/install-secret-guard.sh --repo <path>"
+            exit 1
+          fi
+          chmod +x .githooks/secret-scan.sh
+          if [ "$BASE" = "tree" ]; then
+            echo "No usable diff base — scanning the FULL tree instead."
+            exec ./.githooks/secret-scan.sh --tree "$HEAD_SHA"
+          fi
+          echo "Scanning range: $BASE..$HEAD_SHA"
+          ./.githooks/secret-scan.sh "$BASE" "$HEAD_SHA"
+
+      - name: "2/4 dep-vet: a new dependency name must be registered (ECVP)"
+        if: hashFiles('scripts/dep-vet-guard.mjs') != ''
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+          HEAD_SHA: ${{ steps.base.outputs.head }}
+        run: |
+          # The guard treats an invalid base (all-zero) as "diff against HEAD^".
+          [ "$BASE" = "tree" ] && BASE=0000000000000000000000000000000000000000
+          node scripts/dep-vet-guard.mjs "$BASE" "$HEAD_SHA"
+
+      - name: "3/4 agents-symlink: AGENTS.md must be a symlink to CLAUDE.md"
+        run: |
+          if [ ! -e AGENTS.md ] && [ ! -L AGENTS.md ]; then
+            echo "AGENTS.md not present at repo root — nothing to verify"
+            exit 0
+          fi
+          if [ ! -L AGENTS.md ]; then
+            echo "::error file=AGENTS.md::AGENTS.md is not a symlink. An atomic-save tool may have replaced it."
+            echo "::error::Restore locally: rm AGENTS.md && ln -s CLAUDE.md AGENTS.md"
+            exit 1
+          fi
+          target=$(readlink AGENTS.md)
+          if [ "$target" != "CLAUDE.md" ]; then
+            echo "::error file=AGENTS.md::AGENTS.md points to '$target', expected 'CLAUDE.md'"
+            exit 1
+          fi
+          echo "AGENTS.md -> CLAUDE.md symlink verified"
+
+      - name: "4/4 claude-md-guard: committed global CLAUDE.md mirror within budget (HQ only)"
+        if: hashFiles('scripts/claude-md-guard.sh') != ''
+        run: |
+          set -uo pipefail
+          M=docs/agents/CLAUDE-global.md
+          if [ ! -f "$M" ]; then
+            echo "::error::$M is missing — the global CLAUDE.md mirror is the only committed"
+            echo "::error::copy of that file. Restore it: scripts/claude-md-guard.sh --sync"
+            exit 1
+          fi
+          CLAUDE_MD_PATH="$M" ./scripts/claude-md-guard.sh --check
+          rc=$?
+          echo "guard exit=$rc  (0 ok, 1 warn/stale, 2 fail)"
+          if [ "$rc" -ge 2 ]; then
+            echo "::error::CLAUDE-global.md is at or past the trim threshold. Trim it before"
+            echo "::error::adding more — see FACTS §95(7) for the method."
+            exit 1
+          fi
+          [ "$rc" -eq 1 ] && echo "::warning::CLAUDE-global.md is in the WARN band — plan a trim."
+          if [ -x scripts/test-claude-md-guard.sh ]; then ./scripts/test-claude-md-guard.sh; fi
+          exit 0
+
+      - name: What to do if this failed
+        if: failure()
+        run: |
+          echo "::warning::A guard failed. Read the failing step above:"
+          echo "  secret-scan   -> ROTATE the credential first; deleting the line is NOT enough."
+          echo "  dep-vet       -> vet the dependency (/vet) and add its registry row in the same push."
+          echo "  agents-symlink-> rm AGENTS.md && ln -s CLAUDE.md AGENTS.md"
+          echo "  claude-md     -> trim docs/agents/CLAUDE-global.md (FACTS §95)."
