@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # session-guard.sh — runs at SessionStart in EVERY session, local and cloud.
 # Managed by yabro-hq/scripts/install-session-guard.sh — edit the master, re-stamp.
+# Is every repo running the current copy? ./scripts/check-session-guard-drift.sh
 #
 # WHY THIS FILE EXISTS, in one paragraph: a fresh cloud session clones --depth 50.
 # A shallow clone cannot find a true merge-base, so git REPORTS FICTION — phantom
@@ -57,6 +58,41 @@ n=$(printf '%s' "$live" | grep -c . )
 if [ "${n:-0}" -gt 0 ]; then
   add "${n} branch(es) active in the last 24h: $(printf '%s' "$live" | sed 's#origin/##' | tr '\n' ' ')"
   [ "$n" -gt 5 ] && out="$out ⚠️ OVER THE CAP OF 5 — expect collisions; consider finishing one before starting another."
+fi
+
+# ── 3b. Migration numbers: the claim the working tree cannot see ──────────────
+# THREE collisions in ONE DAY (famchat, 2026-09-14, three sessions). Each picked
+# "the next number after what is in MY working tree", and a migration number is
+# claimed in two places that tree cannot see: a sibling session's BRANCH, and
+# the DB ledger. `ls src/db/` shows neither.
+#
+# So this prints the next free number BEFORE a session picks one — the whole
+# point, since a rule that must be remembered is a rule that gets skipped — and
+# shouts when two branches already claim one slot.
+#
+# Covers the branch half only; the ledger needs credentials this hook must never
+# hold. That half is downstream anyway: ledger names derive from filenames.
+# Self-skips in every repo with no numbered migrations, so one file still serves
+# all of them. Read-only, like everything else here.
+if ls "$R"/src/db/[0-9][0-9][0-9][0-9]*_*.sql >/dev/null 2>&1; then
+  migs=$( { g ls-files src/db
+            for ref in $(g for-each-ref --format='%(refname:short)' refs/remotes/origin \
+                         | grep -v '/HEAD$'); do
+              g ls-tree --name-only "$ref" src/db/
+            done
+          } | sed 's#.*/##' | grep -E '^[0-9]{4}[a-z]?_.+\.sql$' | sort -u )
+  if [ -n "$migs" ]; then
+    # A slot claimed by two DIFFERENT filenames. The same file on many branches
+    # is just a merged file; 0045 beside 0045b is a deliberate insert.
+    dup=$(printf '%s\n' "$migs" | sed -E 's/^([0-9]{4}[a-z]?)_.*/\1/' | uniq -d | tr '\n' ' ')
+    top=$(printf '%s\n' "$migs" | sed -E 's/^([0-9]{4}).*/\1/' | sort -n | tail -1)
+    nxt=$(printf '%04d' $((10#${top:-0} + 1)))
+    if [ -n "${dup// /}" ]; then
+      add "⚠️ MIGRATION NUMBER COLLISION — slot(s) ${dup}are claimed by two different files across branches. Renumber YOURS before applying (never one the DB already recorded). Next free: $nxt"
+    else
+      add "next free migration number: $nxt (checked against every remote branch, not just this tree)"
+    fi
+  fi
 fi
 
 # ── 4. CLAUDE.md size: the file every session reads and no test covers ─────────
