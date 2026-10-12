@@ -41,9 +41,14 @@ STAGED as a diff for AC to install, never silently auto-applied.
 No one-off session noise. Show the diffs at the end, not before saving.
 
 ═══ TASK 2: Handoff brief ═══
-Create `./docs/handoffs/handoff-<stamp>.md` where <stamp> = `TZ=Asia/Taipei date
+Create `./docs/handoffs/handoff-<stamp>-<slug>.md` where <stamp> = `TZ=Asia/Taipei date
 +%Y-%m-%d-%H%M` — ALWAYS Taipei time, so briefs from local and cloud (UTC) sessions
-sort correctly.
+sort correctly — and <slug> is 1–3 words naming the session's concern (e.g.
+`liff-sdk`). The slug is NOT decoration: two sessions wrapped in the same minute on
+2026-10-11 and both computed `handoff-2026-10-11-2336.md`; the second Write silently
+overwrote the first in the shared worktree. A minute stamp is not a unique filename
+under parallel sessions. Before writing, `git cat-file -e HEAD:<path>` — if it
+exists, it is someone else's brief: pick another slug, never overwrite.
 Be exhaustive — next session has amnesia. POINT at durable docs (missions, standups,
 decisions, specs) with paths instead of restating their content. Sections:
 1. Mission (big picture)
@@ -98,10 +103,16 @@ dir won't exist — skip silently.
    pre-push hook catches prose shapes since 2026-09-04 (a backticked value after a
    credential word; `Authorization: Bearer <token>`), but a hit there means the
    secret is already in a local commit — treat it as a rotation, not a typo.
-2. Commit the allowlist: `git add -- <exact paths>` then
-   `git commit --only -F <msgfile> -- <the identical paths>`. `--only` bypasses
+2. Commit the allowlist as a zsh ARRAY, never a space-separated string — zsh does
+   not word-split `$var`, so `git add -- $L` passes ONE path containing spaces, errors,
+   stages nothing, and the commit silently does not happen (2026-10-11: the summary
+   then printed the OLD sha as "committed"):
+   `paths=(a b c); git add -- "${paths[@]}"; git commit --only -F <msgfile> -- "${paths[@]}"`
+   and assert `git rev-parse HEAD` CHANGED before saying "committed". `--only` bypasses
    whatever else is in the shared index, but it IGNORES untracked paths, so the
-   `git add` is required, not optional. Always `-F <file>`, never `-m "..."`:
+   `git add` is required, not optional. A `git mv`'d path is already staged and its
+   OLD path no longer exists on disk — `git add` it and the whole add aborts; add only
+   the paths that exist, and name both rename sides in the `--only` list. Always `-F <file>`, never `-m "..."`:
    prose is full of backticks and `$`, which the shell will mangle into immutable
    history. Push to origin. If rejected, do NOT `git pull --rebase` in a shared
    checkout that holds another session's files — cherry-pick your commit onto
