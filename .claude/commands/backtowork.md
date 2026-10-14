@@ -25,6 +25,24 @@ Bootstrap this session from the last one:
    the handoff is stale.
 4. If the working tree is dirty (including `.claude/agent-memory/`), flag it: that is
    unpersisted state from a session that never wrapped.
-5. Brief me in 5 lines max: where we left off, what's in flight (per the freshest
-   source), and the #1 next step. Then wait for my go.
+5. Codex PR review findings. The ChatGPT Codex GitHub app (`chatgpt-codex-connector[bot]`,
+   enabled on yabro-hq since 2026-10-13) reviews every PR — but `/wrap` merges in the same
+   minute, so its findings land on already-merged PRs where nobody reads them. List the ones
+   nobody has handled yet (no reply, no 👍/👎 reaction) on the last 10 merged PRs:
+   ```bash
+   repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || echo "codex-findings: SKIPPED (gh unavailable or no GitHub remote)"
+   for n in $(gh pr list --state merged --limit 10 --json number -q '.[].number' 2>/dev/null); do
+     gh api "repos/$repo/pulls/$n/comments" | jq -r --arg n "$n" '. as $all | .[]
+       | select(.user.login=="chatgpt-codex-connector[bot]" and .in_reply_to_id==null)
+       | select(.reactions["+1"]==0 and .reactions["-1"]==0) | . as $c
+       | select([$all[] | select(.in_reply_to_id==$c.id)] | length==0)
+       | "PR #\($n) \(.path):\(.line // .original_line) — \(.body | split("\n")[0] | gsub("<[^>]*>|!\\[[^]]*\\]\\([^)]*\\)|\\*\\*";"") | ltrimstr("  "))"'
+   done
+   ```
+   Empty output = nothing owed (most repos: the app is only on yabro-hq). Each line is an
+   in-flight item for the brief; it is closed by replying on the PR comment or reacting
+   👍/👎 to it, never by ignoring it. A finding is a claim — verify it against the repo
+   before acting (two of the first five were right, one proposed the wrong fix).
+6. Brief me in 5 lines max: where we left off, what's in flight (per the freshest
+   source, including step 5's findings), and the #1 next step. Then wait for my go.
 (A handoff brief is producer reasoning — never paste it into a qa-verifier work order.)
